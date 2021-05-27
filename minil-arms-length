@@ -5,14 +5,14 @@ shopt -s inherit_errexit nullglob globstar
 # bashaaparse boilerplate version ed3c50f:1621930881
 
 parse_args() {
-  _O_BRANCH= _O_CPANFILES= _O_FORCE=false _O_RELEASE=true _O_TEST=true _O_UPLOAD=true _O_DIST=
+  _O_BRANCH= _O_CPANFILES= _O_FORCE=false _O_LICENSE= _O_RELEASE=true _O_TEST=true _O_UPLOAD=true _O_DIST=
   while test $# -gt 0; do local arg=$1; shift; case "$arg" in
     --) break ;;
     -h|--help) usage; exit 0 ;;
     -v|--verbose) set -x ;;
     --version) usage --mes; git -C "${__ME[2]}" -P log -1 --pretty=%h:%at "${__ME[4]}"; exit 0 ;;
 
-    --branch=*) ;& --cpanfiles=*) ;& --dist=*) ;& --force) ;& --no-force) ;& --test) ;& --no-test) ;& --release) ;& --no-release) ;& --upload) ;& --no-upload)
+    --branch=*) ;& --cpanfiles=*) ;& --dist=*) ;& --license=*) ;& --force) ;& --no-force) ;& --test) ;& --no-test) ;& --release) ;& --no-release) ;& --upload) ;& --no-upload)
       usage --process1 "$arg" ;;
 
     -*) usage --dieusage 1 "Bad args: $arg" ;;
@@ -110,6 +110,7 @@ main() {
   git add .
   git commit -m 'minil new'
   perl -i -pe 's/5\.008001/5.028000/' cpanfile;
+  [[ $_O_LICENSE = '' ]] || echo "license = \"$_O_LICENSE\"" >>minil.toml;
   git show minil:Changes >Changes
   git add .
   git commit -m 'update new dist to current'
