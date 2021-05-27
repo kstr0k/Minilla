@@ -1,0 +1,121 @@
+#!/bin/bash
+test $(( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) )) -eq 1 || exit 1
+set -euo pipefail; set -o braceexpand
+shopt -s inherit_errexit nullglob globstar
+# bashaaparse boilerplate version ed3c50f:1621930881
+
+parse_args() {
+  _O_BRANCH= _O_FORCE=false _O_RELEASE=true _O_TEST=true _O_UPLOAD=true _O_DIST=
+  while test $# -gt 0; do local arg=$1; shift; case "$arg" in
+    --) break ;;
+    -h|--help) usage; exit 0 ;;
+    -v|--verbose) set -x ;;
+    --version) usage --mes; git -C "${__ME[2]}" -P log -1 --pretty=%h:%at "${__ME[4]}"; exit 0 ;;
+
+    --branch=*) ;& --dist=*) ;& --force) ;& --no-force) ;& --test) ;& --no-test) ;& --release) ;& --no-release) ;& --upload) ;& --no-upload)
+      usage --process1 "$arg" ;;
+
+    -*) usage --dieusage 1 "Bad args: $arg" ;;
+    *) set -- "$arg" "$@"; break ;;
+  esac; done
+  ARGV=( "$@" )
+}
+usage() {
+  if test $# -eq 0; then cat <<EOHELP
+Usage: $(basename -- "$BASH_SOURCE") [OPTION...]
+Options:
+$(usage --flags)
+Defaults:
+$(usage --defaults)
+EOHELP
+  return 0; fi
+
+  case "$1" in
+    --die) local rc=$2; shift 2; [[ $* = '' ]] || echo 1>&2 "$*"; exit "$rc" ;;  # stderr
+    --dieusage) usage 1>&2; shift; test $# -lt 2 || set -- "$1" $'\n'"$2" "${@:3}"; usage --die "$@" ;;
+    --flags)  # optional indent str: '', '*   ' etc. (default: 2 spaces) # goes as-is into sed 's!!...!' replacement
+      local pastr; pastr=$(declare -f parse_args)
+      sed -Ene 's!^\s*(--?[a-zA-Z0-9][a-zA-Z0-9| :-]*)\)!'"${2:-  }"'\1!p' <<<"$pastr"
+      sed -Ene 's!^\s*(--?([a-zA-Z0-9][a-zA-Z0-9:-]*))=\*\)!'"${2:-  }"'\1=\U\2!p' <<<"$pastr";  # ...=* opts
+      ;;
+    --defaults) declare -p | sed -Ene 's!^declare -[^ ]* _O_(.*)!'"${2:-  }"'\1!p' ;;
+    --process1)
+      local arg=${2#--} k; k=${arg%%=*}; arg=${arg#*=}
+      if test "$k" = "$arg"; then  # boolean --do-so or --no-do-so support
+        if [[ $k = no-* ]]; then k=${k#no-}; arg=false; else arg=true; fi
+      fi
+      k=${k//-/_}; printf -v "_O_${k^^}" '%s' "$arg" ;;
+    --mes)  # 0=$F 1=$SYMF 2=D 3=SYMD 4=$B 5=$SYMB # SYM = symlinks preserved
+      __ME=( "$(realpath -- "$BASH_SOURCE")" "$(realpath -sm -- "$BASH_SOURCE")" )
+      local DME; mapfile -t -d '' DME < <(dirname -z "${__ME[@]}"); __ME+=( "${DME[@]}" )
+      mapfile -t -d '' DME < <(basename -az "${__ME[@]:0:2}"); __ME+=( "${DME[@]}" )
+      ;;
+    --me) local __ME; usage --mes; echo "$__ME" ;;
+    --version)
+      local __ME; usage --mes
+      git 2>/dev/null -C "${__ME[2]}" -P log -1 --pretty=%h:%at "${__ME[4]}"  ||
+        stat -c %Z "$__ME"  # no git
+      ;;
+    *) usage --die 1 "Internal error: $1" ;;
+  esac
+  return 0
+}
+
+deleteme() {
+  me=$(basename -- "$BASH_SOURCE"); me=${me%%.*}; test -n "$me" || exit 1
+  git worktree remove "$me" || :
+  git branch -D "$me" || :
+  rm -i "$BASH_SOURCE"
+}
+
+detect_dist() {
+  if [[ $_O_DIST = '' ]]; then
+    local f fs=( lib/**/*.pm )
+    fs=( "${fs[@]#lib/}" ); fs=( "${fs[@]%.pm}" )
+    _O_DIST=$(head -1 < <(for f in "${fs[@]}"; do echo "${#f} $f"; done | LC_ALL=C sort -n))
+    _O_DIST=${_O_DIST#* }
+  fi
+  [[ $_O_DIST != '' ]] || usage --dieusage 1 'No distribution specified or inferred'
+  _O_DIST=${_O_DIST//::/-}; _O_DIST=${_O_DIST////-}
+}
+
+main() {
+  test $# -eq 0 || usage --dieusage 1 "Bad args: $*"
+  [[ $_O_BRANCH != '' ]] || _O_BRANCH=minil-$(TZ= date +'%y%m%d_%H_%M_%S')
+  detect_dist
+  CPANFILES=( LICENSE lib/**/*.pm script/**/* )
+
+  which minil || usage --die 1 'No minil'
+  usage --mes
+  cd -- "${__ME[3]}"
+  if $_O_FORCE; then
+    git worktree remove -f "$_O_BRANCH" || :
+    git branch -D "$_O_BRANCH" || :
+  fi
+  git branch -c master "$_O_BRANCH"
+  git branch --unset-upstream "$_O_BRANCH"
+  git worktree add "$_O_BRANCH" "$_O_BRANCH"
+  trap 'printf \\t%s\\n "Temporary branch: $_O_BRANCH"' EXIT
+  echo '#!/bin/bash -eu'$'\n'"$(declare -f deleteme)"$'\n'"deleteme" > "$_O_BRANCH.rm.sh"; chmod +x "$_O_BRANCH.rm.sh"
+  cd -- "$_O_BRANCH"
+  minil new "$_O_DIST"
+  git rm -rf .
+  git reset -- "${CPANFILES[@]}"
+  git restore -SW "${CPANFILES[@]}"
+  (cd "$_O_DIST"; git rm -f "${CPANFILES[@]}" .travis.yml; rsync -sari --from0 --files-from=<(git ls-files -z) . ..)
+  rm -rf "$_O_DIST"
+  git add .
+  git commit -m 'minil new'
+  perl -i -pe 's/5\.008001/5.028000/' cpanfile;
+  git show minil:Changes >Changes
+  git add .
+  git commit -m 'update new dist to current'
+  $_O_TEST || return 0
+  minil test
+  git commit -am 'minil test'
+  $_O_RELEASE || return 0
+  ($_O_UPLOAD || export FAKE_RELEASE=1; minil release)
+}
+
+parse_args "$@"
+main "${ARGV[@]}"
