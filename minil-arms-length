@@ -5,14 +5,15 @@ shopt -s inherit_errexit nullglob globstar
 # bashaaparse boilerplate version ed3c50f:1621930881
 
 parse_args() {
-  _O_BRANCH= _O_CPANFILES= _O_FORCE=false _O_LICENSE= _O_RELEASE=true _O_TEST=true _O_UPLOAD=true _O_DIST=
+  _O_BRANCH= _O_CPANFILES= _O_FORCE=false _O_LICENSE= _O_PERL_VERSION= _O_RELEASE=true _O_TEST=true _O_UPLOAD=true _O_DIST=
   while test $# -gt 0; do local arg=$1; shift; case "$arg" in
     --) break ;;
     -h|--help) usage; exit 0 ;;
     -v|--verbose) set -x ;;
     --version) usage --mes; git -C "${__ME[2]}" -P log -1 --pretty=%h:%at "${__ME[4]}"; exit 0 ;;
 
-    --branch=*) ;& --cpanfiles=*) ;& --dist=*) ;& --license=*) ;& --force) ;& --no-force) ;& --test) ;& --no-test) ;& --release) ;& --no-release) ;& --upload) ;& --no-upload)
+    --branch=*) ;& --cpanfiles=*) ;& --dist=*) ;& --license=*) ;& --perl-version=*) ;&
+    --force) ;& --no-force) ;& --test) ;& --no-test) ;& --release) ;& --no-release) ;& --upload) ;& --no-upload)
       usage --process1 "$arg" ;;
 
     -*) usage --dieusage 1 "Bad args: $arg" ;;
@@ -83,7 +84,7 @@ main() {
   test $# -eq 0 || usage --dieusage 1 "Bad args: $*"
   [[ $_O_BRANCH != '' ]] || _O_BRANCH=minil-$(TZ= date +'%y%m%d_%H_%M_%S')
   detect_dist
-
+  _O_PERL_VERSION=$(perl -wE 'use strict; my $v = $ARGV[0]; exit 0 unless length $v; $v = $^V if $v eq q(.); $v = version::->parse($v)->numify unless $v =~ /^[0-9]\.[0-9]{3,}$/; print $v' "$_O_PERL_VERSION")
   _O_CPANFILES=( $_O_CPANFILES )  # word-split
   _O_CPANFILES+=( lib/**/*.pm script/**/* )
   ! test -f LICENSE || _O_CPANFILES+=( LICENSE )
@@ -109,7 +110,7 @@ main() {
   rm -rf "$_O_DIST"
   git add .
   git commit -m 'minil new'
-  perl -i -pe 's/5\.008001/5.028000/' cpanfile;
+  [[ $_O_PERL_VERSION = '' ]] || perl -i -pe 's/5\.008001/5.028000/' cpanfile;
   [[ $_O_LICENSE = '' ]] || echo "license = \"$_O_LICENSE\"" >>minil.toml;
   git show minil:Changes >Changes
   git add .
