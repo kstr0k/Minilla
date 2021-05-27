@@ -5,14 +5,14 @@ shopt -s inherit_errexit nullglob globstar
 # bashaaparse boilerplate version ed3c50f:1621930881
 
 parse_args() {
-  _O_BRANCH= _O_FORCE=false _O_RELEASE=true _O_TEST=true _O_UPLOAD=true _O_DIST=
+  _O_BRANCH= _O_CPANFILES= _O_FORCE=false _O_RELEASE=true _O_TEST=true _O_UPLOAD=true _O_DIST=
   while test $# -gt 0; do local arg=$1; shift; case "$arg" in
     --) break ;;
     -h|--help) usage; exit 0 ;;
     -v|--verbose) set -x ;;
     --version) usage --mes; git -C "${__ME[2]}" -P log -1 --pretty=%h:%at "${__ME[4]}"; exit 0 ;;
 
-    --branch=*) ;& --dist=*) ;& --force) ;& --no-force) ;& --test) ;& --no-test) ;& --release) ;& --no-release) ;& --upload) ;& --no-upload)
+    --branch=*) ;& --cpanfiles=*) ;& --dist=*) ;& --force) ;& --no-force) ;& --test) ;& --no-test) ;& --release) ;& --no-release) ;& --upload) ;& --no-upload)
       usage --process1 "$arg" ;;
 
     -*) usage --dieusage 1 "Bad args: $arg" ;;
@@ -83,7 +83,10 @@ main() {
   test $# -eq 0 || usage --dieusage 1 "Bad args: $*"
   [[ $_O_BRANCH != '' ]] || _O_BRANCH=minil-$(TZ= date +'%y%m%d_%H_%M_%S')
   detect_dist
-  CPANFILES=( LICENSE lib/**/*.pm script/**/* )
+
+  _O_CPANFILES=( $_O_CPANFILES )  # word-split
+  _O_CPANFILES+=( lib/**/*.pm script/**/* )
+  ! test -f LICENSE || _O_CPANFILES+=( LICENSE )
 
   which minil || usage --die 1 'No minil'
   usage --mes
@@ -100,9 +103,9 @@ main() {
   cd -- "$_O_BRANCH"
   minil new "$_O_DIST"
   git rm -rf .
-  git reset -- "${CPANFILES[@]}"
-  git restore -SW "${CPANFILES[@]}"
-  (cd "$_O_DIST"; git rm -f "${CPANFILES[@]}" .travis.yml; rsync -sari --from0 --files-from=<(git ls-files -z) . ..)
+  git reset -- "${_O_CPANFILES[@]}"
+  git restore -SW "${_O_CPANFILES[@]}"
+  (cd "$_O_DIST"; git rm -f "${_O_CPANFILES[@]}" .travis.yml; rsync -sari --from0 --files-from=<(git ls-files -z) . ..)
   rm -rf "$_O_DIST"
   git add .
   git commit -m 'minil new'
